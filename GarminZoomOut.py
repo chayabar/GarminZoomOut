@@ -239,7 +239,7 @@ def main():
             act_analysis(data=json_data, act_type=act, lines=lines_input[act].copy())
 
 
-if len(sys.argv[1])>1 and sys.argv[1] == '--help':
+if len(sys.argv)>1 and sys.argv[1] == '--help':
     help_doc()
 else:
     main()
