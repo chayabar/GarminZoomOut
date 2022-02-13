@@ -4,6 +4,7 @@ import pathlib
 import sys
 from collections import Counter
 from datetime import datetime
+import warnings
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -242,4 +243,5 @@ def main():
 if len(sys.argv)>1 and sys.argv[1] == '--help':
     help_doc()
 else:
+    warnings.filterwarnings('ignore')  # ignore user warnings
     main()
