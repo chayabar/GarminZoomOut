@@ -4,7 +4,6 @@ import pathlib
 import sys
 from collections import Counter
 from datetime import datetime
-import warnings
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -24,7 +23,8 @@ else:
 # ------------------- functions -------------------
 
 
-def get_dict():
+# return dictionary with parameters structure for each activity type
+def act_parameters_dict():
     d = {'lap_swimming': {'d': [], 'avgHr': [], 'avgLapTime': [], 'avgStrokes': []},
          'running': {'d': [], 'avgHr': [], 'Duration': [], 'avgPace': [], 'avgDoubleCadence': []},
          'walking': {'d': [], 'avgHr': [], 'Duration': [], 'Distance': [], 'avgPace': []}}
@@ -38,10 +38,14 @@ def help_doc():
           "Mandatory: Garmin data (folder/file) should be in the script's directory. The script recognize it according to the suffix 'summarizedActivities.json'\n" +
           "The plots will be saved in the script's directory.\n" +
           'Optional Arguments (for multiple values in the same field, use comma as a separator)')
-    d = get_dict()
-    all_act = [a + '_' + b for a in d.keys() for b in d[a].keys()]
-    all_act_d = [i for i in all_act if '_d' in i]
-    all_act_not_d = [i for i in all_act if '_d' not in i]
+    act_param_d = act_parameters_dict()
+    # make a list of all activities with their specific parameters
+    all_act_param = []
+    for act_name in act_param_d.keys():
+        act_param = act_param_d[act_name].keys()
+        all_act_param += [act_name + '_' + param for param in act_param]
+    all_act_d = [i for i in all_act_param if '_d' in i]
+    all_act_not_d = [i for i in all_act_param if '_d' not in i]
 
     print('\t--' + all_act_d[0] + (30 - len(all_act_d[0])) * ' ' + ' dates (DD/MM/YYYY) to draw vertical lines')
     print('\n'.join(['\t--' + i for i in all_act_d[1:]]))
@@ -57,7 +61,7 @@ def users_input():
             datetime.strptime(date_text, '%d-%m-%Y')
             return True
         except:
-            print("Incorrect data format " + date_text.replace('-', '/') + ", should be DD-MM-YYYY" +
+            print("Incorrect date format " + date_text.replace('-', '/') + ", should be DD-MM-YYYY" +
                   "\nTry 'python GarminZoomOut.py --help' for more information.")
             return False
 
@@ -71,24 +75,29 @@ def users_input():
             return False
 
     # dict to hold inputs
-    d = get_dict()
-    all_act = [a + '_' + b for a in d.keys() for b in d[a].keys()]
+    act_param_d = act_parameters_dict()
+    # make a list of all activities with their specific parameters
+    all_act_param = []
+    for act_name in act_param_d.keys():
+        act_param = act_param_d[act_name].keys()
+        all_act_param += [act_name + '_' + param for param in act_param]
 
     # loop over inputs (example format : "--lap_swimming_h=02/09/2016,03/12/2016")
-    for k, v in ((k.lstrip('-'), v) for k, v in (a.split('=') for a in sys.argv[1:])):
-        if k not in all_act:
-            print('invalid option --' + k + "\nTry 'python GarminZoomOut.py --help' for more information.")
+    input_pairs = [input.lstrip('-').split('=') for input in sys.argv[1:]]
+    for field, val in input_pairs:
+        if field not in all_act_param:
+            print('invalid option --' + field + "\nTry 'python GarminZoomOut.py --help' for more information.")
             continue
-        act, variable = k.rsplit('_', 1)  # activity type, line direction
-        if variable == 'd':
-            v = v.replace('/', '-').split(',')  # dates list
-            v = [d for d in v if validate_date(d)]  # check which ones are valid
+        act, param = field.rsplit('_', 1)  # activity type, line direction
+        if param == 'd':
+            val = val.replace('/', '-').split(',')  # dates list
+            val = [date for date in val if validate_date(date)]  # check which ones are valid
         else:
-            v = v.split(',')  # values list
-            v = [i for i in v if validate_num(i)]
-        if len(v):
-            d[act] = {variable: v}
-    return d
+            val = val.split(',')  # values list
+            val = [num for num in val if validate_num(num)]
+        if len(val):
+            act_param_d[act] = {param: val}
+    return act_param_d
 
 
 # get string of json file content and plot distribution of activities
@@ -112,12 +121,11 @@ def act_distribution(json_data):
     # plt.show()
     plt.close()
     # return list of activities with minimum entries
-    return [n for n, v in act_type_l.items() if v > 20]
+    return [act_n for act_n, count in act_type_l.items() if count > 20]
 
 
-# act_type = ['lap_swimming'/ 'running'/ 'walking']
-# get string of json file content and activity type to analyze
-def act_analysis(data, act_type, lines):
+# get activity type, return distance scale and minimal cutoff
+def act_dist(act_type):
     act_dist_scale = 1
     act_dist_cutoff = 1
     # adjust parameters according to activity type
@@ -127,14 +135,13 @@ def act_analysis(data, act_type, lines):
     elif act_type in ['running', 'walking']:
         act_dist_scale = 1 / 100000  # cm to km
         act_dist_cutoff = 1  # minimum 1 km
+    return act_dist_scale, act_dist_cutoff
 
-    # collect all relevant activities from data
-    act_list = []
-    for act in data:
-        # if this is the relevant activity and the distance passed a minimal cutoff
-        if act['activityType'] == act_type and act['distance'] * act_dist_scale > act_dist_cutoff:
-            act_list.append(act)
 
+# get activity type name and list with activities from this type
+# return df with relevant metrics for this activity
+def extract_act_features(act_type, act_list):
+    act_dist_scale = act_dist(act_type)[0]
     # dict with the relevant metrics for the plots
     act_plot = {}
     for act in act_list:
@@ -167,42 +174,55 @@ def act_analysis(data, act_type, lines):
 
     # sort activities by date time
     act_plot = dict(sorted(act_plot.items()))
+    return act_plot
 
-    act_df = pd.DataFrame(act_plot).T
-    act_df.index = act_df.index.date  # index of date only (disregard time)
+
+# get activity df, lines dict and axes. check which lines in df range, add to plot
+def add_lines(act_df, lines, axes):
+    for metric in lines.keys():
+        # extract values in range
+        if metric == 'd':
+            max_metric = max(act_df.index)
+            min_metric = min(act_df.index)
+            # convert metric to date format
+            lines[metric] = [datetime.strptime(i, '%d-%m-%Y').date() for i in lines[metric]]
+        else:
+            colname = act_df.columns[act_df.columns.str.contains(metric, )][0]
+            max_metric = act_df[colname].max()
+            min_metric = act_df[colname].min()
+            lines[metric] = [float(i) for i in lines[metric]]
+        # filter all values that in data metric range
+        lines[metric] = [val for val in lines[metric] if val <= max_metric and val >= min_metric]
+
+    # add lines to empathize specific results, users input
+    for metric in lines.keys():
+        # add vertical date lines
+        if len(lines[metric]) and metric == 'd':
+            for val in lines[metric]:
+                for ax in axes:
+                    ax.axvline(x=val, color='black', linestyle='--')
+        # add horizontal metric lines
+        if len(lines[metric]) and metric != 'd':
+            for val in lines[metric]:
+                ax = [ax for ax in axes if ax.title._text == metric][0]
+                ax.axhline(y=val, color='black', linestyle='--')
+
+
+# get activity df, dict for plot lines, act type. save plots to out dir
+def act_plot(act_df, act_type, lines):
     # extract subplots titles list
-    titles = act_df.columns.str.replace(' \((.*?)\)', '').to_list()
+    titles = act_df.columns.str.replace(' \((.*?)\)', '', regex=True).to_list()
     # plot activity metrics over time
     axes = act_df.plot(subplots=True, legend=False, title=titles)
     plt.minorticks_off()  # turn off minor ticks
     # extract ylabels and set them in subplots
     ylabs = act_df.columns.str.extract('\((.*?)\)')[0].str.replace('/', "/\n").to_list()
+    # set ylabels and add mean text
     for i in range(len(axes)):
         axes[i].set_ylabel(ylabs[i])
         axes[i].text(0.8, 0.7, 'mean=' + str(round(act_df.iloc[:, i].mean(), 2)), size=10, transform=axes[i].transAxes)
 
-    # add lines to empathize specific results, users input
-    for k in lines.keys():
-        # extract values in range
-        if k == 'd':
-            max_v = max(act_df.index)
-            min_v = min(act_df.index)
-            lines[k] = [datetime.strptime(i, '%d-%m-%Y').date() for i in lines[k]]
-        else:
-            colname = act_df.columns[act_df.columns.str.contains(k, )][0]
-            max_v = act_df[colname].max()
-            min_v = act_df[colname].min()
-            lines[k] = [float(i) for i in lines[k]]
-        lines[k] = [v for v in lines[k] if v <= max_v and v >= min_v]
-
-        if len(lines[k]) and k == 'd':
-            for v in lines[k]:
-                for ax in plt.gcf().axes:
-                    ax.axvline(x=v, color='black', linestyle='--')
-        if len(lines[k]) and k != 'd':
-            for v in lines[k]:
-                ax = [ax for ax in plt.gcf().axes if ax.title._text == k][0]
-                ax.axhline(y=v, color='black', linestyle='--')
+    add_lines(act_df, lines, axes)
 
     # add main title
     plt_name = act_type.capitalize().replace('_', ' ') + ' summary'
@@ -212,12 +232,28 @@ def act_analysis(data, act_type, lines):
     plt.close()
 
     # plot correlation of the different pairs in activity variables
-    act_df['Month'] = act_df.index.astype(str).str[:-3].to_list()
+    act_df['Month'] = pd.Series(act_df.index.date).astype(str).str[:-3].to_list()
     g = sns.pairplot(act_df, corner=True, hue='Month', palette='magma')
     plt_name = plt_name.replace(' summary', ' - variables correlation')
     g.fig.suptitle(plt_name)
     plt.savefig(out_dir + plt_name.replace(' -', '') + '.jpg')
     plt.close()
+
+
+# act_type = ['lap_swimming'/ 'running'/ 'walking']
+# get string of json file content and activity type to analyze
+def act_analysis(data, act_type, lines):
+    act_dist_scale, act_dist_cutoff = act_dist(act_type)
+    # collect all relevant activities from data
+    act_list = []
+    for act in data:
+        # if this is the relevant activity and the distance passed a minimal cutoff
+        if act['activityType'] == act_type and act['distance'] * act_dist_scale > act_dist_cutoff:
+            act_list.append(act)
+
+    act_df = extract_act_features(act_type, act_list)
+    act_df = pd.DataFrame(act_df).T
+    act_plot(act_df, act_type, lines)
 
 
 # main, read data, send to different functions
@@ -243,5 +279,4 @@ def main():
 if len(sys.argv)>1 and sys.argv[1] == '--help':
     help_doc()
 else:
-    warnings.filterwarnings('ignore')  # ignore user warnings
     main()
