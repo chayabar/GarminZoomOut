@@ -185,7 +185,7 @@ def add_lines(act_df, lines, axes):
             max_metric = max(act_df.index)
             min_metric = min(act_df.index)
             # convert metric to date format
-            lines[metric] = [datetime.strptime(i, '%d-%m-%Y').date() for i in lines[metric]]
+            lines[metric] = [datetime.strptime(i, '%d-%m-%Y') for i in lines[metric]]
         else:
             colname = act_df.columns[act_df.columns.str.contains(metric, )][0]
             max_metric = act_df[colname].max()
